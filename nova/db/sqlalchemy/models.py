@@ -19,6 +19,10 @@
 #    under the License.
 """
 SQLAlchemy models for nova data.
+
+Please note that these models attempt to mark columns which contain personally
+identifying data using the __confidential__ variable. This assists with
+generating datasets safe for public distribution for migration testing.
 """
 
 from sqlalchemy import Column, Index, Integer, BigInteger, Enum, String, schema
@@ -48,7 +52,6 @@ class NovaBase(models.SoftDeleteMixin,
 
 class Service(BASE, NovaBase):
     """Represents a running service on a host."""
-
     __tablename__ = 'services'
     __table_args__ = (
         schema.UniqueConstraint("host", "topic", "deleted",
@@ -56,6 +59,8 @@ class Service(BASE, NovaBase):
         schema.UniqueConstraint("host", "binary", "deleted",
                                 name="uniq_services0host0binary0deleted")
         )
+    __confidential__ = {'host': 'hostname',
+                        'topic': 'string'}
 
     id = Column(Integer, primary_key=True)
     host = Column(String(255))  # , ForeignKey('hosts.id'))
@@ -68,9 +73,11 @@ class Service(BASE, NovaBase):
 
 class ComputeNode(BASE, NovaBase):
     """Represents a running compute service on a host."""
-
     __tablename__ = 'compute_nodes'
     __table_args__ = ()
+    __confidential__ = {'hypervisor_hostname': 'hostname',
+                        'host_ip': 'ip_address'}
+
     id = Column(Integer, primary_key=True)
     service_id = Column(Integer, ForeignKey('services.id'), nullable=False)
     service = relationship(Service,
@@ -151,6 +158,10 @@ class Certificate(BASE, NovaBase):
         Index('certificates_project_id_deleted_idx', 'project_id', 'deleted'),
         Index('certificates_user_id_deleted_idx', 'user_id', 'deleted')
     )
+    __confidential__ = {'user_id': 'string',
+                        'project_id': 'string',
+                        'file_name': 'string'}
+
     id = Column(Integer, primary_key=True)
 
     user_id = Column(String(255))
@@ -179,6 +190,24 @@ class Instance(BASE, NovaBase):
         Index('instances_host_deleted_cleaned_idx',
               'host', 'deleted', 'cleaned'),
     )
+    __confidential__ = {'uuid': 'uuid',
+                        'user_id': 'string',
+                        'project_id': 'string',
+                        'name': 'string',
+                        'key_name': 'key_name',
+                        'key_data': 'string',
+                        'user_data': 'string',
+                        'scheduled_at': 'datetime',
+                        'launched_at': 'datetime',
+                        'terminated_at': 'datetime',
+                        'availability_zone': 'string',
+                        'display_name': 'string',
+                        'display_description': 'string',
+                        'launched_on': 'hostname',
+                        'access_ip_v4': 'ip_address',
+                        'access_ip_v6': 'ip_addesss_v6',
+                        'cell_name': 'string'}
+
     injected_files = []
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -311,6 +340,7 @@ class InstanceInfoCache(BASE, NovaBase):
     id = Column(Integer, primary_key=True, autoincrement=True)
 
     # text column used for storing a json object of network data for api
+    # TODO(mikal): I'm not sure how we do anon for JSON blobs
     network_info = Column(MediumText())
 
     instance_uuid = Column(String(36), ForeignKey('instances.uuid'),
@@ -335,6 +365,7 @@ class InstanceTypes(BASE, NovaBase):
         schema.UniqueConstraint("name", "deleted",
                                 name="uniq_instance_types0name0deleted")
     )
+    __confidential__ = {'name': 'string'}
 
     # Internal only primary key/id
     id = Column(Integer, primary_key=True)
@@ -353,11 +384,24 @@ class InstanceTypes(BASE, NovaBase):
 
 
 class Volume(BASE, NovaBase):
-    """Represents a block storage device that can be attached to a VM."""
+    """
+    Represents a block storage device that can be attached to a VM.
+    """
     __tablename__ = 'volumes'
     __table_args__ = (
         Index('volumes_instance_uuid_idx', 'instance_uuid'),
     )
+    __confidential__ = {'ec2_id': 'ec2_id',
+                        'user_id': 'string',
+                        'project_id': 'string',
+                        'snapshot_id': 'uuid',
+                        'host': 'hostname',
+                        'availability_zone': 'string',
+                        'display_name': 'string',
+                        'display_description': 'string',
+                        'provider_location': 'string',
+                        'provider_auth': 'string'}
+
     id = Column(String(36), primary_key=True, nullable=False)
     deleted = Column(String(36), default="")
 
@@ -402,13 +446,14 @@ class Quota(BASE, NovaBase):
     deployment is used. If the row is present but the hard limit is
     Null, then the resource is unlimited.
     """
-
     __tablename__ = 'quotas'
     __table_args__ = (
         schema.UniqueConstraint("project_id", "resource", "deleted",
         name="uniq_quotas0project_id0resource0deleted"
         ),
     )
+    __confidential__ = {'project_id': 'string'}
+
     id = Column(Integer, primary_key=True)
 
     project_id = Column(String(255))
@@ -418,8 +463,8 @@ class Quota(BASE, NovaBase):
 
 
 class ProjectUserQuota(BASE, NovaBase):
-    """Represents a single quota override for a user with in a project."""
-
+    """Represents a single quota override for a user with in a project.
+    """
     __tablename__ = 'project_user_quotas'
     uniq_name = "uniq_project_user_quotas0user_id0project_id0resource0deleted"
     __table_args__ = (
@@ -430,6 +475,9 @@ class ProjectUserQuota(BASE, NovaBase):
         Index('project_user_quotas_user_id_deleted_idx',
               'user_id', 'deleted')
     )
+    __confidential__ = {'project_id': 'string',
+                        'user_id': 'string'}
+
     id = Column(Integer, primary_key=True, nullable=False)
 
     project_id = Column(String(255), nullable=False)
@@ -446,7 +494,6 @@ class QuotaClass(BASE, NovaBase):
     default for the deployment is used.  If the row is present but the
     hard limit is Null, then the resource is unlimited.
     """
-
     __tablename__ = 'quota_classes'
     __table_args__ = (
         Index('ix_quota_classes_class_name', 'class_name'),
@@ -461,11 +508,13 @@ class QuotaClass(BASE, NovaBase):
 
 class QuotaUsage(BASE, NovaBase):
     """Represents the current usage for a given resource."""
-
     __tablename__ = 'quota_usages'
     __table_args__ = (
         Index('ix_quota_usages_project_id', 'project_id'),
     )
+    __confidential__ = {'project_id': 'string',
+                        'user_id': 'string'}
+
     id = Column(Integer, primary_key=True)
 
     project_id = Column(String(255))
@@ -484,12 +533,16 @@ class QuotaUsage(BASE, NovaBase):
 
 class Reservation(BASE, NovaBase):
     """Represents a resource reservation for quotas."""
-
     __tablename__ = 'reservations'
     __table_args__ = (
         Index('ix_reservations_project_id', 'project_id'),
         Index('reservations_uuid_idx', 'uuid'),
     )
+    __confidential__ = {'uuid': 'uuid',
+                        'project_id': 'string',
+                        'user_id': 'string',
+                        'expire': 'datetime'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     uuid = Column(String(36), nullable=False)
 
@@ -513,6 +566,12 @@ class Snapshot(BASE, NovaBase):
     """Represents a block storage device that can be attached to a VM."""
     __tablename__ = 'snapshots'
     __table_args__ = ()
+    __confidential__ = {'user_id': 'string',
+                        'project_id': 'string',
+                        'volume_id': 'uuid',
+                        'display_name': 'string',
+                        'display_description': 'string'}
+
     id = Column(String(36), primary_key=True, nullable=False)
     deleted = Column(String(36), default="")
 
@@ -554,6 +613,9 @@ class BlockDeviceMapping(BASE, NovaBase):
         Index("block_device_mapping_instance_uuid_virtual_name"
               "_device_name_idx", 'instance_uuid', 'device_name'),
     )
+    __confidential__ = {'instance_uuid': 'uuid',
+                        'image_id': 'uuid'}
+
     id = Column(Integer, primary_key=True, autoincrement=True)
 
     instance_uuid = Column(String(36), ForeignKey('instances.uuid'))
@@ -605,6 +667,9 @@ class IscsiTarget(BASE, NovaBase):
         Index('iscsi_targets_host_volume_id_deleted_idx', 'host', 'volume_id',
               'deleted')
     )
+    __confidential__ = {'host': 'hostname',
+                        'volume_id': 'uuid'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     target_num = Column(Integer)
     host = Column(String(255))
@@ -617,11 +682,15 @@ class IscsiTarget(BASE, NovaBase):
 
 
 class SecurityGroupInstanceAssociation(BASE, NovaBase):
+    """Mapping between security groups and instances."""
     __tablename__ = 'security_group_instance_association'
     __table_args__ = (
         Index('security_group_instance_association_instance_uuid_idx',
               'instance_uuid'),
     )
+    __confidential__ = {'security_group_id': 'uuid',
+                        'instance_uuid': 'uuid'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     security_group_id = Column(Integer, ForeignKey('security_groups.id'))
     instance_uuid = Column(String(36), ForeignKey('instances.uuid'))
@@ -634,6 +703,11 @@ class SecurityGroup(BASE, NovaBase):
         Index('uniq_security_groups0project_id0name0deleted', 'project_id',
               'name', 'deleted'),
     )
+    __confidential__ = {'name': 'string',
+                        'description': 'string',
+                        'user_id': 'string',
+                        'project_id': 'string'}
+
     id = Column(Integer, primary_key=True)
 
     name = Column(String(255))
@@ -661,6 +735,8 @@ class SecurityGroupIngressRule(BASE, NovaBase):
     """Represents a rule in a security group."""
     __tablename__ = 'security_group_rules'
     __table_args__ = ()
+    __confidential__ = {'cidr': 'ip_address_v4'}
+
     id = Column(Integer, primary_key=True)
 
     parent_group_id = Column(Integer, ForeignKey('security_groups.id'))
@@ -688,6 +764,8 @@ class SecurityGroupIngressRule(BASE, NovaBase):
 class SecurityGroupIngressDefaultRule(BASE, NovaBase):
     __tablename__ = 'security_group_default_rules'
     __table_args__ = ()
+    __confidential__ = {'cidr': 'ip_address_v4'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     protocol = Column(String(5))  # "tcp", "udp" or "icmp"
     from_port = Column(Integer)
@@ -699,6 +777,8 @@ class ProviderFirewallRule(BASE, NovaBase):
     """Represents a rule in a security group."""
     __tablename__ = 'provider_fw_rules'
     __table_args__ = ()
+    __confidential__ = {'cidr': 'ip_address_v4'}
+
     id = Column(Integer, primary_key=True, nullable=False)
 
     protocol = Column(String(5))  # "tcp", "udp", or "icmp"
@@ -714,6 +794,11 @@ class KeyPair(BASE, NovaBase):
         schema.UniqueConstraint("user_id", "name", "deleted",
                                 name="uniq_key_pairs0user_id0name0deleted"),
     )
+    __confidential__ = {'name': 'string',
+                        'user_id': 'string',
+                        'fingerprint': 'string',
+                        'public_key': 'string'}
+
     id = Column(Integer, primary_key=True, nullable=False)
 
     name = Column(String(255))
@@ -734,6 +819,12 @@ class Migration(BASE, NovaBase):
               'source_compute', 'dest_compute', 'source_node', 'dest_node',
               'status'),
     )
+    __confidential__ = {'source_compute': 'hostname',
+                        'dest_compute': 'hostname',
+                        'source_node': 'hostname',
+                        'dest_node': 'hostname',
+                        'instance_uuid': 'uuid'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     # NOTE(tr3buchet): the ____compute variables are instance['host']
     source_compute = Column(String(255))
@@ -769,6 +860,21 @@ class Network(BASE, NovaBase):
        Index('networks_vlan_deleted_idx', 'vlan', 'deleted'),
        Index('networks_cidr_v6_idx', 'cidr_v6')
     )
+    __confidential__ = {'cidr': 'ip_address',
+                        'cidr_v6': 'ip_address_v6',
+                        'gateway_v6': 'ip_address_v6',
+                        'netmask_v6': 'ip_address_v6',
+                        'netmask': 'ip_address',
+                        'gateway': 'ip_address',
+                        'broadcast': 'ip_address',
+                        'dns1': 'ip_address',
+                        'dns2': 'ip_address',
+                        'vlan': 'integer',
+                        'vpn_public_address': 'ip_address',
+                        'vpn_public_port': 'integer',
+                        'vpn_private_address': 'ip_address',
+                        'dhcp_start': 'ip_address',
+                        'host': 'hostname'}
 
     id = Column(Integer, primary_key=True, nullable=False)
     label = Column(String(255))
@@ -811,6 +917,10 @@ class VirtualInterface(BASE, NovaBase):
         Index('network_id', 'network_id'),
         Index('virtual_interfaces_instance_uuid_fkey', 'instance_uuid'),
     )
+    __confidential__ = {'address': 'string',
+                        'instance_uuid': 'uuid',
+                        'uuid': 'uuid'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     address = Column(String(255))
     network_id = Column(Integer)
@@ -837,6 +947,10 @@ class FixedIp(BASE, NovaBase):
         Index('fixed_ips_deleted_allocated_idx', 'address', 'deleted',
               'allocated')
     )
+    __confidential__ = {'address': 'ip_address',
+                        'instance_uuid': 'uuid',
+                        'host': 'hostname'}
+
     id = Column(Integer, primary_key=True)
     address = Column(types.IPAddress())
     network_id = Column(Integer)
@@ -879,6 +993,9 @@ class FloatingIp(BASE, NovaBase):
         Index('floating_ips_pool_deleted_fixed_ip_id_project_id_idx',
               'pool', 'deleted', 'fixed_ip_id', 'project_id')
     )
+    __confidential__ = {'address': 'ip_address',
+                        'host': 'hostname'}
+
     id = Column(Integer, primary_key=True)
     address = Column(types.IPAddress())
     fixed_ip_id = Column(Integer)
@@ -904,6 +1021,8 @@ class DNSDomain(BASE, NovaBase):
         Index('project_id', 'project_id'),
         Index('dns_domains_domain_deleted_idx', 'domain', 'deleted'),
     )
+    __confidential__ = {'domain': 'string'}
+
     deleted = Column(Boolean, default=False)
     domain = Column(String(255), primary_key=True)
     scope = Column(String(255))
@@ -919,6 +1038,13 @@ class ConsolePool(BASE, NovaBase):
             "host", "console_type", "compute_host", "deleted",
             name="uniq_console_pools0host0console_type0compute_host0deleted"),
     )
+    __confidential__ = {'address': 'ip_address',
+                        'username': 'string',
+                        'password': 'string',
+                        'public_hostname': 'string',
+                        'host': 'hostname',
+                        'compute_host': 'hostname'}
+
     id = Column(Integer, primary_key=True)
     address = Column(types.IPAddress())
     username = Column(String(255))
@@ -935,6 +1061,11 @@ class Console(BASE, NovaBase):
     __table_args__ = (
         Index('consoles_instance_uuid_idx', 'instance_uuid'),
     )
+    __confidential__ = {'instance_name': 'hostname',
+                        'instance_uuid': 'uuid',
+                        'password': 'string',
+                        'port': 'integer'}
+
     id = Column(Integer, primary_key=True)
     instance_name = Column(String(255))
     instance_uuid = Column(String(36), ForeignKey('instances.uuid'))
@@ -950,6 +1081,10 @@ class InstanceMetadata(BASE, NovaBase):
     __table_args__ = (
         Index('instance_metadata_instance_uuid_idx', 'instance_uuid'),
     )
+    __confidential__ = {'key': 'string',
+                        'value': 'string',
+                        'instance_uuid': 'uuid'}
+
     id = Column(Integer, primary_key=True)
     key = Column(String(255))
     value = Column(String(255))
@@ -966,6 +1101,10 @@ class InstanceSystemMetadata(BASE, NovaBase):
     """Represents a system-owned metadata key/value pair for an instance."""
     __tablename__ = 'instance_system_metadata'
     __table_args__ = ()
+    __confidential__ = {'key': 'string',
+                        'value': 'string',
+                        'instance_uuid': 'uuid'}
+
     id = Column(Integer, primary_key=True)
     key = Column(String(255), nullable=False)
     value = Column(String(255))
@@ -1012,6 +1151,9 @@ class InstanceTypeExtraSpecs(BASE, NovaBase):
                     "instance_type_id0key0deleted")
         ),
     )
+    __confidential__ = {'key': 'string',
+                        'value': 'string'}
+
     id = Column(Integer, primary_key=True)
     key = Column(String(255))
     value = Column(String(255))
@@ -1027,13 +1169,17 @@ class InstanceTypeExtraSpecs(BASE, NovaBase):
 class Cell(BASE, NovaBase):
     """Represents parent and child cells of this cell.  Cells can
     have multiple parents and children, so there could be any number
-    of entries with is_parent=True or False
+    of entries with is_parent=True or False.
     """
     __tablename__ = 'cells'
     __table_args__ = (schema.UniqueConstraint(
         "name", "deleted", name="uniq_cells0name0deleted"
         ),
     )
+    __confidential__ = {'name': 'string',
+                        'api_url': 'string',
+                        'transport_url': 'string'}
+
     id = Column(Integer, primary_key=True)
     # Name here is the 'short name' of a cell.  For instance: 'child1'
     name = Column(String(255))
@@ -1054,6 +1200,8 @@ class AggregateHost(BASE, NovaBase):
          name="uniq_aggregate_hosts0host0aggregate_id0deleted"
         ),
     )
+    __confidential__ = {'host': 'hostname'}
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     host = Column(String(255))
     aggregate_id = Column(Integer, ForeignKey('aggregates.id'), nullable=False)
@@ -1068,6 +1216,9 @@ class AggregateMetadata(BASE, NovaBase):
             ),
         Index('aggregate_metadata_key_idx', 'key'),
     )
+    __confidential__ = {'key': 'string',
+                        'value': 'string'}
+
     id = Column(Integer, primary_key=True)
     key = Column(String(255), nullable=False)
     value = Column(String(255), nullable=False)
@@ -1078,6 +1229,8 @@ class Aggregate(BASE, NovaBase):
     """Represents a cluster of hosts that exists in this zone."""
     __tablename__ = 'aggregates'
     __table_args__ = ()
+    __confidential__ = {'name': 'string'}
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255))
     _hosts = relationship(AggregateHost,
@@ -1119,6 +1272,9 @@ class AgentBuild(BASE, NovaBase):
         schema.UniqueConstraint("hypervisor", "os", "architecture", "deleted",
                 name="uniq_agent_builds0hypervisor0os0architecture0deleted"),
     )
+    __confidential__ = {'hypervisor': 'string',
+                        'url': 'string'}
+
     id = Column(Integer, primary_key=True)
     hypervisor = Column(String(255))
     os = Column(String(255))
@@ -1135,6 +1291,10 @@ class BandwidthUsage(BASE, NovaBase):
         Index('bw_usage_cache_uuid_start_period_idx', 'uuid',
               'start_period'),
     )
+    __confidential__ = {'uuid': 'uuid',
+                        'start_period': 'datetime',
+                        'last_refreshed': 'datetime'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     uuid = Column(String(36))
     mac = Column(String(255))
@@ -1150,6 +1310,11 @@ class VolumeUsage(BASE, NovaBase):
     """Cache for volume usage data pulled from the hypervisor."""
     __tablename__ = 'volume_usage_cache'
     __table_args__ = ()
+    __confidential__ = {'instance_uuid': 'uuid',
+                        'project_id': 'string',
+                        'user_id': 'string',
+                        'availability_zone': 'string'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     volume_id = Column(String(36), nullable=False)
     instance_uuid = Column(String(36))
@@ -1193,12 +1358,15 @@ class SnapshotIdMapping(BASE, NovaBase):
 
 
 class InstanceFault(BASE, NovaBase):
+    """Track instance faults."""
     __tablename__ = 'instance_faults'
     __table_args__ = (
         Index('instance_faults_host_idx', 'host'),
         Index('instance_faults_instance_uuid_deleted_created_at_idx',
               'instance_uuid', 'deleted', 'created_at')
     )
+    __confidential__ = {'instance_uuid': 'uuid',
+                        'host': 'hostname'}
 
     id = Column(Integer, primary_key=True, nullable=False)
     instance_uuid = Column(String(36),
@@ -1220,6 +1388,11 @@ class InstanceAction(BASE, NovaBase):
         Index('instance_uuid_idx', 'instance_uuid'),
         Index('request_id_idx', 'request_id')
     )
+    __confidential__ = {'instance_uuid': 'uuid',
+                        'user_id': 'string',
+                        'project_id': 'string',
+                        'start_time': 'datetime',
+                        'finish_time': 'datetime'}
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
     action = Column(String(255))
@@ -1237,6 +1410,8 @@ class InstanceActionEvent(BASE, NovaBase):
     """Track events that occur during an InstanceAction."""
     __tablename__ = 'instance_actions_events'
     __table_args__ = ()
+    __confidential__ = {'start_time': 'datetime',
+                        'finish_time': 'datetime'}
 
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
     event = Column(String(255))
@@ -1269,6 +1444,10 @@ class TaskLog(BASE, NovaBase):
         Index('ix_task_log_host', 'host'),
         Index('ix_task_log_period_ending', 'period_ending'),
     )
+    __confidential__ = {'host': 'hostname',
+                        'period_beginning': 'datetime',
+                        'period_ending': 'datetime'}
+
     id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
     task_name = Column(String(255), nullable=False)
     state = Column(String(255), nullable=False)
@@ -1312,6 +1491,9 @@ class InstanceGroupMetadata(BASE, NovaBase):
     __table_args__ = (
         Index('instance_group_metadata_key_idx', 'key'),
     )
+    __confidential__ = {'key': 'string',
+                        'value': 'string'}
+
     id = Column(Integer, primary_key=True, nullable=False)
     key = Column(String(255))
     value = Column(String(255))
@@ -1325,12 +1507,15 @@ class InstanceGroup(BASE, NovaBase):
     A group will maintain a collection of instances and the relationship
     between them.
     """
-
     __tablename__ = 'instance_groups'
     __table_args__ = (
         schema.UniqueConstraint("uuid", "deleted",
                                  name="uniq_instance_groups0uuid0deleted"),
     )
+    __confidential__ = {'user_id': 'string',
+                        'project_id': 'string',
+                        'uuid': 'uuid',
+                        'name': 'string'}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(255))
@@ -1377,6 +1562,8 @@ class PciDevice(BASE, NovaBase):
             "compute_node_id", "address", "deleted",
             name="uniq_pci_devices0compute_node_id0address0deleted")
     )
+    __confidential__ = {'instance_uuid': 'uuid'}
+
     id = Column(Integer, primary_key=True)
 
     compute_node_id = Column(Integer, ForeignKey('compute_nodes.id'),
