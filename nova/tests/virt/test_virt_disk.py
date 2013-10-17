@@ -33,6 +33,19 @@ class VirtDiskTest(test.NoDBTestCase):
 
     def test_inject_data(self):
 
+        from posix import stat_result
+        orig_os_stat = os.stat
+
+        def fake_stat(arg):
+            if arg == '/some/file':  # fake success
+                return stat_result((16877, 2, 2049L,
+                                    23, 0, 0,
+                                    4096, 1381787843,
+                                    1381635971, 1381635971))
+            else:
+                return orig_os_stat(arg)
+        os.stat = fake_stat
+
         self.assertTrue(diskapi.inject_data("/some/file", use_cow=True))
 
         self.assertTrue(diskapi.inject_data("/some/file",
